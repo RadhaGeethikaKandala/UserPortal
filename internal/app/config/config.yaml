@@ -1,0 +1,20 @@
+
+server:
+  host: 127.0.0.1
+  port: 8085
+
+database:
+  username: userportal
+  password: userportal
+  dbname: userportal
+  host: 127.0.0.1
+  port: 5432
+  sslmode: disable
+
+databasetest:
+  username: userportaltest
+  password: userportaltest
+  dbname: user_portaltest
+  host: 192.168.106.2
+  port: 5432
+  sslmode: disable
