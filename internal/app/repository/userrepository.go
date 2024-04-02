@@ -10,6 +10,12 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+const insertUserQuery = `INSERT INTO users (first_name, last_name, email) VALUES (:first_name, :last_name, :email)`
+const getAllUsersQuery = `SELECT * FROM users`
+const getUserByEmailQuery = `SELECT * FROM users WHERE email = $1`
+const updateUserQuery = `UPDATE users SET first_name = :first_name, last_name = :last_name WHERE email = :email`
+const deleteUserQuery = `DELETE FROM users WHERE email = $1`
+
 type ErrUserNotFound struct {
 	Email string
 }
@@ -40,7 +46,7 @@ func NewUserRepository(conn *sqlx.DB) UserRepository {
 
 func (ur userRepository) GetUserByEmail(email string) (*dto.User, error) {
 	user := dto.User{}
-	err := ur.db.Get(&user, "SELECT * FROM users WHERE email = $1", email)
+	err := ur.db.Get(&user, getUserByEmailQuery, email)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, &ErrUserNotFound{Email: email}
@@ -55,10 +61,7 @@ func (ur userRepository) CreateUser(user dto.User) error {
 	if isUserExisting {
 		return errors.New("Duplicate request , user already existing with email " + user.Email)
 	}
-
-	query := `INSERT INTO users (first_name, last_name, email) VALUES (:first_name,:last_name,:email)`
-
-	_, err := ur.db.NamedExec(query, user)
+	_, err := ur.db.NamedExec(insertUserQuery, user)
 
 	return err
 }
@@ -88,9 +91,7 @@ func (ur userRepository) CreateUsers(users []dto.User) error {
 			return errors.New("Duplicate request , user already existing with email " + user.Email)
 		}
 
-		query := `INSERT INTO users (first_name, last_name, email) VALUES (:first_name,:last_name,:email)`
-
-		if _, err := tx.NamedExec(query, user); err != nil {
+		if _, err := tx.NamedExec(insertUserQuery, user); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -101,7 +102,7 @@ func (ur userRepository) CreateUsers(users []dto.User) error {
 
 func (ur userRepository) GetAllUsers() ([]dto.User, error) {
 	users := []dto.User{}
-	err := ur.db.Select(&users, "SELECT * FROM users")
+	err := ur.db.Select(&users, getAllUsersQuery)
 	if err != nil {
 		fmt.Println("Error in db ", err)
 		return nil, err
@@ -116,24 +117,14 @@ func (ur userRepository) UpdateUser(user dto.User) error {
 		return &ErrUserNotFound{Email: user.Email}
 	}
 
-	query := `
-		UPDATE users
-		SET first_name = :first_name, last_name = :last_name
-		WHERE email = :email
-	`
-
-	_, err := ur.db.NamedExec(query, user)
+	_, err := ur.db.NamedExec(updateUserQuery, user)
 	return err
 
 }
 
 func (ur userRepository) DeleteUserByEmail(email string) error {
-	query := `
-		DELETE FROM users
-		WHERE email = $1
-	`
 
-	result, err := ur.db.Exec(query, email)
+	result, err := ur.db.Exec(deleteUserQuery, email)
 
 	if rowsEffected, _ := result.RowsAffected(); err == nil && rowsEffected == 0 {
 		fmt.Println("rows effected", rowsEffected)
