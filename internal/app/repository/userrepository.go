@@ -4,10 +4,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"userportal/internal/app/dto"
 
 	"github.com/jmoiron/sqlx"
 )
+
+type ErrUserNotFound struct {
+	Email string
+}
 
 type UserRepository interface {
 	CreateUser(user dto.User) error
@@ -22,6 +27,11 @@ type userRepository struct {
 	db *sqlx.DB
 }
 
+// Implement the Error() method for the custom error type.
+func (e *ErrUserNotFound) Error() string {
+	return fmt.Sprintf("user with email '%s' not found", e.Email)
+}
+
 func NewUserRepository(conn *sqlx.DB) UserRepository {
 	return &userRepository{
 		db: conn,
@@ -33,7 +43,7 @@ func (ur userRepository) GetUserByEmail(email string) (*dto.User, error) {
 	err := ur.db.Get(&user, "SELECT * FROM users WHERE email = $1", email)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("user not found")
+			return nil, &ErrUserNotFound{Email: email}
 		}
 		return nil, err
 	}
@@ -41,30 +51,26 @@ func (ur userRepository) GetUserByEmail(email string) (*dto.User, error) {
 
 }
 func (ur userRepository) CreateUser(user dto.User) error {
-	isUserExisting, err := isUserExisting(ur, user)
-	fmt.Println("is user existing", isUserExisting)
+	isUserExisting, _ := isUserExisting(ur, user)
 	if isUserExisting {
-		return errors.New("Duplicate request , user already existing with email" + user.Email)
-	}
-	if err != nil {
-		return err
+		return errors.New("Duplicate request , user already existing with email " + user.Email)
 	}
 
 	query := `INSERT INTO users (first_name, last_name, email) VALUES (:first_name,:last_name,:email)`
 
-	_, err = ur.db.NamedExec(query, user)
+	_, err := ur.db.NamedExec(query, user)
 
 	return err
 }
 
 func isUserExisting(ur userRepository, user dto.User) (bool, error) {
 	existingUser, err1 := ur.GetUserByEmail(user.Email)
-	fmt.Println("existung users", existingUser)
-	if err1 != nil && err1.Error() != "user not found" {
-		return false, err1
+	_, isUserNotFoundErr := err1.(*ErrUserNotFound)
+	if err1 != nil && !isUserNotFoundErr {
+
+		log.Fatal("Error while retreiving user", err1)
 	}
 	if existingUser != nil {
-		fmt.Println("user already existing")
 		return true, nil
 	}
 	return false, nil
@@ -75,18 +81,17 @@ func (ur userRepository) CreateUsers(users []dto.User) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
 
-	query := `INSERT INTO users (first_name, last_name, email) VALUES (:first_name,:last_name,:email)`
 	for _, user := range users {
-		isUserExisting, err := isUserExisting(ur, user)
+		isUserExisting, _ := isUserExisting(ur, user)
 		if isUserExisting {
-			return errors.New("Duplicate request , user already existing with email" + user.Email)
+			return errors.New("Duplicate request , user already existing with email " + user.Email)
 		}
-		if err != nil {
-			return err
-		}
-		if _, err := tx.NamedExec(query, &user); err != nil {
+
+		query := `INSERT INTO users (first_name, last_name, email) VALUES (:first_name,:last_name,:email)`
+
+		if _, err := tx.NamedExec(query, user); err != nil {
+			tx.Rollback()
 			return err
 		}
 	}
@@ -105,13 +110,10 @@ func (ur userRepository) GetAllUsers() ([]dto.User, error) {
 }
 
 func (ur userRepository) UpdateUser(user dto.User) error {
-	isUserExisting, err := isUserExisting(ur, user)
-	fmt.Println("is user existing", isUserExisting)
+	isUserExisting, _ := isUserExisting(ur, user)
+
 	if !isUserExisting {
-		return errors.New("no user exists with given email")
-	}
-	if err != nil {
-		return err
+		return &ErrUserNotFound{Email: user.Email}
 	}
 
 	query := `
@@ -120,7 +122,7 @@ func (ur userRepository) UpdateUser(user dto.User) error {
 		WHERE email = :email
 	`
 
-	_, err = ur.db.NamedExec(query, user)
+	_, err := ur.db.NamedExec(query, user)
 	return err
 
 }
@@ -135,7 +137,7 @@ func (ur userRepository) DeleteUserByEmail(email string) error {
 
 	if rowsEffected, _ := result.RowsAffected(); err == nil && rowsEffected == 0 {
 		fmt.Println("rows effected", rowsEffected)
-		return errors.New("no user exists with given email")
+		return &ErrUserNotFound{Email: email}
 	}
 	return err
 }
